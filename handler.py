@@ -438,6 +438,68 @@ def addProjectEvent(event, context):
         return create_response(200, 'Successfully associated event with project.')
 
 
+def removeProjectEvent(event, context):
+    """Removes a calendar event from a project's list of events.
+
+    The mirror of addProjectEvent, and the other half of keeping
+    scheduled_with_events true. Without it the list only ever grew: a booking
+    deleted from the calendar stayed listed on its project forever, so the
+    field could not be read as "the bookings that will run this project" --
+    only as "bookings that were made at some point".
+
+    Harmless in its first consumer -- deleteProject asks the calendar to clear
+    a project from an event that no longer exists, which does nothing -- but a
+    list that accumulates ids nobody can resolve is the kind of thing a later
+    feature trusts by mistake.
+
+    Args:
+        event.body.project_name (str): Name of the project to remove from.
+        event.body.created_at (str): UTC datetime string of project creation.
+        event.body.event_id (str): id of the calendar event to remove.
+
+    Returns:
+        200 whether or not the event was listed, and whether or not the
+        project still exists. This is called while deleting a booking, and a
+        booking must not fail to delete because its project is already gone.
+    """
+
+    request_body = json.loads(event.get("body", ""))
+    table = dynamodb.Table(projects_table)
+
+    project_name = request_body["project_name"]
+    created_at = request_body["created_at"]
+    event_id = request_body["event_id"]
+
+    response = table.get_item(
+        Key={
+            "project_name": project_name,
+            "created_at": created_at
+        },
+    )
+
+    # The project may have been deleted before the booking was. Nothing to
+    # update, and nothing wrong.
+    if "Item" not in response:
+        return create_response(200, 'No such project; nothing to remove.')
+
+    events_list = response['Item'].get('scheduled_with_events') or []
+    if event_id not in events_list:
+        return create_response(200, 'Event was not associated with this project')
+
+    events_list = [e for e in events_list if e != event_id]
+    table.update_item(
+        Key={
+            "project_name": project_name,
+            "created_at": created_at,
+        },
+        UpdateExpression="SET scheduled_with_events = :swe",
+        ExpressionAttributeValues={
+            ":swe": events_list
+        }
+    )
+    return create_response(200, 'Successfully removed event from project.')
+
+
 def addProjectData(event, context):
     """Updates a project with images taken to track the completion progress.
 

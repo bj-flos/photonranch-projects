@@ -193,6 +193,13 @@ functions:
           path: add-project-event
           method: post
           cors: true
+  removeProjectEvent:
+    handler: handler.removeProjectEvent
+    events:
+      - http:
+          path: remove-project-event
+          method: post
+          cors: true
   deleteProject:
     handler: handler.deleteProject
     events:
