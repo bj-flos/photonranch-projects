@@ -44,27 +44,49 @@ class DecimalEncoder(json.JSONEncoder):
         return super(DecimalEncoder, self).default(o)
 
 
+def get_calendar_url(path):
+    """Where the calendar this projects backend belongs to actually lives.
+
+    PTR_CALENDAR_ROOT first, which is how every other component in this stack
+    is told where the services are. Without it the only possible answer was
+    calendar.photonranch.org, so a deployment with its own calendar -- the
+    Proxmox lab, or anything run offline -- aimed its writes at LCO production.
+    This function is only used to DELETE things from a calendar, which makes
+    that the wrong default to fail to.
+    """
+    root = os.getenv('PTR_CALENDAR_ROOT')
+    if root:
+        return f"{root.rstrip('/')}/{path}"
+
+    # Otherwise the original behaviour. The development stage is used in some
+    # URLs. The production URL for the calendar is '...org/calendar...', so
+    # check first if the stage is 'prod'.
+    stage = os.environ['STAGE']
+    if stage == 'prod':
+        stage = 'calendar'
+    return f"https://calendar.photonranch.org/{stage}/{path}"
+
+
 def removeProjectFromCalendarEvents(list_of_event_ids):
     """Removes a project from associated reservations in the calendar.
-
-    Requests are posted to the calendar table at AWS associated with
-    the current development stage.
 
     Args:
         list_of_event_ids (list): Ids of calendar events we want to modify.
     """
-    
-    # The development stage is used in some URLs. The production URL for the
-    # calendar is '...org/calendar...', so check first if the stage is 'prod'.
-    if os.environ['STAGE'] == 'prod':
-        stage = 'calendar'
-    else:
-        stage = os.environ['STAGE']
-    calendarURL = f"https://calendar.photonranch.org/{stage}/remove-project-from-events"
+
+    # Nothing to do, and worth returning early rather than posting an empty
+    # list: until the calendar started registering bookings on their projects,
+    # scheduled_with_events was empty on every project and this was always the
+    # case, which is why deleting a project never cleared its bookings.
+    if not list_of_event_ids:
+        print("project has no associated calendar events to clear")
+        return
+
     requestBody = json.dumps({
         "events": list_of_event_ids
     })
-    requests.post(calendarURL, requestBody)
+    requests.post(get_calendar_url('remove-project-from-events'), requestBody,
+                  timeout=10)
 
 
 #=========================================#
