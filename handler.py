@@ -465,7 +465,21 @@ def addProjectData(event, context):
 
     # Next, add our new information
     project_data[exposure_index].append(base_filename)
-    remaining[exposure_index] = int(remaining[exposure_index]) - 1
+
+    # Floored at zero. The observatory can and does deliver more frames than
+    # an exposure asked for -- the sequencer cycles its whole exposure list
+    # once per unit of `left_to_do`, which it seeds with the SUM of every
+    # exposure's count, so a project with several entries has each of them
+    # taken sum(counts) times rather than its own count. Without the floor
+    # `remaining` then ran negative without limit and stopped being usable as
+    # a progress figure: it is read as "how many still to take", and -90 does
+    # not answer that question.
+    #
+    # The extra frames are still recorded in project_data above, so nothing is
+    # lost -- the count of files there remains the honest record of what was
+    # actually captured, and the difference between the two is how you would
+    # spot the over-exposure.
+    remaining[exposure_index] = max(0, int(remaining[exposure_index]) - 1)
 
     print("updated values: ")
     print(project_data)
