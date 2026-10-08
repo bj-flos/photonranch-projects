@@ -162,14 +162,16 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
     project -- `project_name`, `created_at`, `user_id` -- and the keys that
     describe one: `project_sites`, `project_targets`, `exposures`,
     `project_constraints`. `scheduled_with_events` defaults to `[]` when absent.
-    Post the project **whole**: the item is written with `put_item`, which
-    replaces whatever is stored, so a partial body overwrites rather than
-    merges.
+    Post the project **whole**: these fields are read without guarding by the
+    interface and by the rest of this service. The write is conditional on the
+    key not already existing, so this endpoint inserts and never overwrites.
   - Responses:
     - 200: Successfully added new project.
     - 400: Missing required key in `[project_name, user_id, created_at]`.
     - 400: Missing required key in `[project_sites, project_targets, exposures,
       project_constraints]`.
+    - 409: A project already exists at this `project_name` + `created_at`.
+      `/new-project` inserts and will not overwrite; use `/modify-project`.
 
 - POST `/modify-project`
   - Description: Modifies the details of an existing project. Users can only modify their own projects, unless they are an admin.

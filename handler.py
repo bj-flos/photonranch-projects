@@ -252,18 +252,19 @@ def addNewProject(event, context):
     # them they blanked the calendar's editor for every drop, on every site,
     # until the records were removed.
     #
-    # put_item REPLACES the stored item rather than merging into it, so this
-    # also catches the sharper version of the same mistake: re-posting an
-    # existing project with a partial body silently discarded every field the
-    # second body left out. One of those two records lost a 29-field
-    # project_constraints that way, 47 milliseconds after gaining it.
+    # There used to be a sharper version of the same mistake: put_item replaced
+    # the stored item rather than merging into it, so re-posting an existing
+    # project with a partial body silently discarded every field the second body
+    # left out. One of those two records lost a 29-field project_constraints
+    # that way, 47 milliseconds after gaining it. The conditional put below
+    # closes that; this check is about the first write rather than the second.
     describing_keys = ['project_sites', 'project_targets', 'exposures',
                        'project_constraints']
     missing = [k for k in describing_keys if k not in actual_keys]
     if missing:
         msg = (f"Error: missing required key(s) {', '.join(missing)}. "
-               "A project must be posted whole -- put_item replaces the stored "
-               "item, so a partial body overwrites rather than merges.")
+               "A project must be posted whole: the interface and the rest of "
+               "this service read these fields without guarding.")
         print(msg)
         return create_response(400, msg)
 
@@ -277,7 +278,31 @@ def addNewProject(event, context):
     # Convert floats into decimals for dynamodb
     dynamodb_entry = json.loads(json.dumps(event_body), parse_float=decimal.Decimal)
 
-    table_response = table.put_item(Item=dynamodb_entry)
+    # Insert-only. An unconditional put_item REPLACES whatever is stored at this
+    # key, so posting an existing project here used to discard it and answer 200
+    # -- a caller could not tell a creation from an overwrite, and neither could
+    # the log. A project is identified by project_name + created_at, the
+    # interface stamps created_at at send time, and in the whole service log no
+    # key has ever been posted twice except by a bisect run against this
+    # endpoint. Changing an existing project is what /modify-project is for.
+    try:
+        table_response = table.put_item(
+            Item=dynamodb_entry,
+            ConditionExpression=(
+                "attribute_not_exists(project_name) AND "
+                "attribute_not_exists(created_at)"
+            ),
+        )
+    except ClientError as e:
+        if e.response['Error']['Code'] == "ConditionalCheckFailedException":
+            msg = (f"Error: a project named {dynamodb_entry['project_name']} "
+                   f"created at {dynamodb_entry['created_at']} already exists. "
+                   "Use /modify-project to change it -- /new-project will not "
+                   "overwrite.")
+            print(msg)
+            return create_response(409, msg)
+        print(f"error adding project: {e}")
+        return create_response(400, e.response['Error']['Message'])
 
     message = json.dumps({
         'table_response': table_response,
