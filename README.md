@@ -158,10 +158,18 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
 - POST `/new-project`
   - Description: Adds a new project to the projects database.
   - Authorization required: No.
-  - Request body: project dict, which must include keys `project_name`, `created_at`, and `user_id` (along with the rest of the project as defined above).
+  - Request body: project dict. It must include the keys that identify a
+    project -- `project_name`, `created_at`, `user_id` -- and the keys that
+    describe one: `project_sites`, `project_targets`, `exposures`,
+    `project_constraints`. `scheduled_with_events` defaults to `[]` when absent.
+    Post the project **whole**: the item is written with `put_item`, which
+    replaces whatever is stored, so a partial body overwrites rather than
+    merges.
   - Responses:
     - 200: Successfully added new project.
     - 400: Missing required key in `[project_name, user_id, created_at]`.
+    - 400: Missing required key in `[project_sites, project_targets, exposures,
+      project_constraints]`.
 
 - POST `/modify-project`
   - Description: Modifies the details of an existing project. Users can only modify their own projects, unless they are an admin.

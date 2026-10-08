@@ -244,6 +244,36 @@ def addNewProject(event, context):
             print(msg)
             return create_response(400, msg)
 
+    # Those three identify a project; they do not describe one. Nothing else
+    # used to be checked, so a body carrying only them was stored verbatim and
+    # answered 200 -- and the interface then broke on what came back, because
+    # the event editor reads project_sites off every record in the list without
+    # guarding. Two such records were created by hand on 2026-10-07 and between
+    # them they blanked the calendar's editor for every drop, on every site,
+    # until the records were removed.
+    #
+    # put_item REPLACES the stored item rather than merging into it, so this
+    # also catches the sharper version of the same mistake: re-posting an
+    # existing project with a partial body silently discarded every field the
+    # second body left out. One of those two records lost a 29-field
+    # project_constraints that way, 47 milliseconds after gaining it.
+    describing_keys = ['project_sites', 'project_targets', 'exposures',
+                       'project_constraints']
+    missing = [k for k in describing_keys if k not in actual_keys]
+    if missing:
+        msg = (f"Error: missing required key(s) {', '.join(missing)}. "
+               "A project must be posted whole -- put_item replaces the stored "
+               "item, so a partial body overwrites rather than merges.")
+        print(msg)
+        return create_response(400, msg)
+
+    # The one field the rest of this service subscripts without checking:
+    # addProjectEvent and deleteProject both do `Item['scheduled_with_events']`.
+    # A project stored without it could afterwards be neither booked nor
+    # deleted -- the delete path raised KeyError before it reached the table,
+    # so the malformed records could only be removed from DynamoDB directly.
+    event_body.setdefault('scheduled_with_events', [])
+
     # Convert floats into decimals for dynamodb
     dynamodb_entry = json.loads(json.dumps(event_body), parse_float=decimal.Decimal)
 
