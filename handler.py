@@ -151,11 +151,27 @@ def modify_project(project_name: str, created_at: str, project_changes: dict):
     # For each exposure request, try to match it with an existing exposure 
     # request. If they match, then 'import' the associated data into the 
     # updated_project_data array. 
+    # project_data and remaining are parallel to exposures in intent but not in
+    # guarantee: a project can be stored with fewer entries than it has
+    # exposures -- 16 of the 23 in this table were, with project_data [] against
+    # one exposure, all from the same creation script -- and indexing them by
+    # old_index then raised IndexError and took the whole edit down. Editing any
+    # of those projects was impossible, and the failure surfaced as an opaque
+    # 500 because the handler's except clause could not serialise the error.
+    #
+    # A missing entry means nothing has been gathered for that exposure yet,
+    # which is exactly what updated_project_data and updated_remaining_data are
+    # already initialised to. So skip the import and keep the default rather
+    # than inventing one.
+    old_project_data = old_project["project"].get("project_data")
+    old_remaining = old_project["project"].get("remaining")
     for new_index, new_exposure in enumerate(project_changes["exposures"]):
-        for old_index, old_exposure in enumerate(old_project["project"]["exposures"]):
-            if new_exposure == old_exposure: 
-                updated_project_data[new_index] = old_project["project"]["project_data"][old_index]
-                updated_remaining_data[new_index] = old_project["project"]["remaining"][old_index]
+        for old_index, old_exposure in enumerate(old_project["project"].get("exposures") or []):
+            if new_exposure == old_exposure:
+                if isinstance(old_project_data, list) and old_index < len(old_project_data):
+                    updated_project_data[new_index] = old_project_data[old_index]
+                if isinstance(old_remaining, list) and old_index < len(old_remaining):
+                    updated_remaining_data[new_index] = old_remaining[old_index]
                 break                   
 
     # Finally, add the updated_project_data array to the udpated_project dict.
