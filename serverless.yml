@@ -158,9 +158,14 @@ functions:
       - http:
           path: new-project
           method: post
-          #authorizer:
-            #name: authorizerFunc
-            #resultTtlInSeconds: 0 # Don't cache the policy or other tasks will fail!
+          # Creating a project is now attributed to the authenticated caller,
+          # so the gateway must establish one. This has no effect on the local
+          # stack -- ptr-local-stack/local_service.py deliberately does not run
+          # the authorizer and supplies a dev principal instead -- but the
+          # handler's check behaves the same way against either.
+          authorizer:
+            name: authorizerFunc
+            resultTtlInSeconds: 0 # Don't cache the policy or other tasks will fail!
           cors: true
   modifyProject:
     handler: handler.modify_project_handler

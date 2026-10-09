@@ -157,7 +157,10 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
 
 - POST `/new-project`
   - Description: Adds a new project to the projects database.
-  - Authorization required: No.
+  - Authorization required: Yes. The project is owned by the authenticated
+    caller; a body naming a different `user_id` is refused. Note that the local
+    stack does not run the authorizer and supplies a dev principal, so a
+    request without a token is attributed to that principal and must name it.
   - Request body: project dict. It must include the keys that identify a
     project -- `project_name`, `created_at`, `user_id` -- and the keys that
     describe one: `project_sites`, `project_targets`, `exposures`,
@@ -170,6 +173,7 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
     - 400: Missing required key in `[project_name, user_id, created_at]`.
     - 400: Missing required key in `[project_sites, project_targets, exposures,
       project_constraints]`.
+    - 403: The body names a `user_id` other than the authenticated caller.
     - 409: A project already exists at this `project_name` + `created_at`.
       `/new-project` inserts and will not overwrite; use `/modify-project`.
 

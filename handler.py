@@ -268,6 +268,30 @@ def addNewProject(event, context):
         print(msg)
         return create_response(400, msg)
 
+    # The owner is whoever is calling, not whoever the body says. user_id used
+    # to be taken straight from the request body -- supplied by the browser and
+    # settable to anything -- so a project could be created in another person's
+    # name and would then appear in their list and not the author's. API Gateway
+    # puts the verified caller in requestContext; the local runner mirrors the
+    # same shape with its dev principal, so an unauthenticated create is now
+    # refused here too rather than silently attributed.
+    #
+    # Refusing rather than overwriting is deliberate: a caller that disagrees
+    # with the gateway about who it is has a bug worth seeing, and a script
+    # driving this endpoint can still create projects by naming the principal
+    # it actually has.
+    caller = (event.get("requestContext", {})
+                   .get("authorizer", {})
+                   .get("principalId"))
+    if caller:
+        claimed = event_body["user_id"]
+        if claimed != caller:
+            msg = (f"Error: a project may only be created for the caller. This "
+                   f"request is authenticated as {caller} but names {claimed} "
+                   "as the owner.")
+            print(msg)
+            return create_response(403, msg)
+
     # The one field the rest of this service subscripts without checking:
     # addProjectEvent and deleteProject both do `Item['scheduled_with_events']`.
     # A project stored without it could afterwards be neither booked nor
