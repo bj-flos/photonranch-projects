@@ -165,8 +165,16 @@ def modify_project(project_name: str, created_at: str, project_changes: dict):
     # than inventing one.
     old_project_data = old_project["project"].get("project_data")
     old_remaining = old_project["project"].get("remaining")
-    for new_index, new_exposure in enumerate(project_changes["exposures"]):
-        for old_index, old_exposure in enumerate(old_project["project"].get("exposures") or []):
+    # Compare both sides in the same types. Without this the match below failed
+    # for any exposure carrying a float that is not exactly representable --
+    # width and height routinely are not -- so prior progress was never
+    # imported and every edit quietly reset a project's completion counts: a
+    # project nine frames into ten went back to ten remaining, with its
+    # project_data cleared. The loop has always meant to carry that forward.
+    incoming_exposures = _as_json_types(project_changes["exposures"])
+    stored_exposures = _as_json_types(old_project["project"].get("exposures") or [])
+    for new_index, new_exposure in enumerate(incoming_exposures):
+        for old_index, old_exposure in enumerate(stored_exposures):
             if new_exposure == old_exposure:
                 if isinstance(old_project_data, list) and old_index < len(old_project_data):
                     updated_project_data[new_index] = old_project_data[old_index]
@@ -197,6 +205,19 @@ def modify_project(project_name: str, created_at: str, project_changes: dict):
     }
         
     
+def _as_json_types(value):
+    """Re-read a stored value as JSON would have delivered it.
+
+    DynamoDB hands back Decimal; a request body arrives as int and float. The
+    two do not compare equal when the number has no exact binary form --
+    Decimal('2.398') == 2.398 is False, because Decimal compares exactly -- so
+    an exposure read from the table never matched the same exposure sent over
+    HTTP. Putting the stored side through the encoder the response path already
+    uses leaves both in the same types.
+    """
+    return json.loads(json.dumps(value, cls=DecimalEncoder))
+
+
 def get_project(project_name, created_at):
     """Retrieves details of a specified project from the DynamoDB table.
     
