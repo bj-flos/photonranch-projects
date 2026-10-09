@@ -187,6 +187,8 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
   - Responses:
     - 200: Successfully modified project details.
     - 400: Bad request.
+    - 403: The project belongs to somebody else and the caller is not an admin.
+    - 404: No project exists at this `project_name` + `created_at`.
 
 - POST `/get-project`
   - Description: Retrieves the details of a specified project.
@@ -245,7 +247,9 @@ Project requests are handled at the base URL `https://projects.photonranch.org/{
     - `created_at` (string): UTC datestring at time of project creation.
   - Responses:
     - 200: Successfully deleted project.
-    - 403: Unauthorized request.
+    - 403: The project belongs to somebody else and the caller is not an admin.
+      Nothing is changed: the project keeps its calendar bookings.
+    - 404: No project exists at this `project_name` + `created_at`.
 
 ### Example Requests
 

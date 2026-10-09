@@ -1,5 +1,6 @@
 import json
 import os
+import traceback
 import boto3
 import decimal
 import requests
@@ -356,13 +357,44 @@ def modify_project_handler(event, context):
         created_at = event_body['created_at']
         project_changes = event_body['project_changes']
 
+        # Until 2026-10-09 this endpoint had no authorizer and no ownership
+        # check of any kind, so anyone who could reach it could rewrite anyone
+        # else's project -- including its targets, exposures and sites, with
+        # the owner never told. deleteProject has guarded itself this way all
+        # along; modify-project, which can change just as much, did not.
+        #
+        # modify_project deletes the existing row and puts the amended one
+        # back, so an unauthorised call does not merely edit, it replaces.
+        # Check before touching anything.
+        authorizer = event.get("requestContext", {}).get("authorizer", {})
+        caller = authorizer.get("principalId")
+        if caller:
+            try:
+                roles = json.loads(authorizer.get("userRoles") or "[]")
+            except (TypeError, ValueError):
+                roles = []
+            existing = get_project(project_name, created_at)
+            if not existing["project_exists"]:
+                return create_response(404, "No project found to modify.")
+            owner = existing["project"].get("user_id")
+            if "admin" not in roles and owner != caller:
+                msg = ("Error: you may only modify your own projects. This "
+                       f"project belongs to {owner}.")
+                print(msg)
+                return create_response(403, msg)
+
         response = modify_project(project_name, created_at, project_changes)
         return create_response(200, json.dumps(response, cls=DecimalEncoder))
     
     # Something else went wrong, return a Bad Request status code.
     except Exception as e:
+        # json.dumps(e) raises TypeError -- an exception is not serializable --
+        # so this except clause used to raise from inside itself and the caller
+        # got an opaque 500 with the real error nowhere in the response. It hid
+        # a live IndexError in modify_project for as long as it has existed.
         print(f"Exception: {e}")
-        return create_response(400, json.dumps(e))
+        print(traceback.format_exc())
+        return create_response(400, f"{type(e).__name__}: {e}")
 
 
 def get_project_handler(event, context):
@@ -703,9 +735,10 @@ def deleteProject(event, context):
     print(f"userRoles: {userRoles}")
 
     # Check if the requester is an admin
-    requesterIsAdmin = "false"
-    if 'admin' in userRoles:
-        requesterIsAdmin="true"
+    # A real boolean. This was the string "false", which is truthy, so the
+    # authorization test below passed for everybody -- see there.
+    requester_is_admin = 'admin' in userRoles
+    requesterIsAdmin = "true" if requester_is_admin else "false"
     print(f"requesterIsAdmin: {requesterIsAdmin}")
 
     # Specify the event with our pk (project_name) and sk (created_at)
@@ -720,13 +753,32 @@ def deleteProject(event, context):
             "created_at": created_at
         },
     )
-    associated_events = event_response['Item']['scheduled_with_events']
+    # A project that is not there cannot be deleted, and subscripting ['Item']
+    # for one raised KeyError and surfaced as a 500.
+    if 'Item' not in event_response:
+        return create_response(404, "No project found to delete.")
+    project = event_response['Item']
+    # .get: a project stored before new-project defaulted this field has no
+    # scheduled_with_events at all, and those records could not be deleted
+    # through this endpoint because of it.
+    associated_events = project.get('scheduled_with_events', [])
 
-    # Don't remove project from calendar events if the user is not authorized
-    if requesterIsAdmin or userMakingThisRequest==event_response['Item']['user_id']:
-        print("removing projects from calendar events: ")
-        print(associated_events)
-        removeProjectFromCalendarEvents(associated_events)
+    # Authorize BEFORE touching anything. The test here used to be
+    #     if requesterIsAdmin or userMakingThisRequest == ...
+    # against the STRING "false", which is truthy -- so it passed for every
+    # caller and the comment above it described the opposite of what happened.
+    # A stranger's delete was refused by the conditional write further down,
+    # but only after this had already unregistered the project from all of its
+    # calendar bookings: the project survived, stripped of its schedule, and
+    # nothing said so.
+    if not (requester_is_admin or userMakingThisRequest == project.get('user_id')):
+        msg = "You may only delete your own projects."
+        print(msg)
+        return create_response(403, msg)
+
+    print("removing projects from calendar events: ")
+    print(associated_events)
+    removeProjectFromCalendarEvents(associated_events)
 
     try:
         # Now we can delete the item

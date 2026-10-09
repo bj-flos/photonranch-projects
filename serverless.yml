@@ -173,6 +173,13 @@ functions:
       - http:
           path: modify-project
           method: post
+          # Changing a project is restricted to its owner (or an admin), so
+          # the gateway must establish a caller. Inert on the local stack --
+          # ptr-local-stack/local_service.py does not run the authorizer --
+          # but the handler's check behaves the same against either.
+          authorizer:
+            name: authorizerFunc
+            resultTtlInSeconds: 0 # Don't cache the policy or other tasks will fail!
           cors: true
   getProject:
     handler: handler.get_project_handler
